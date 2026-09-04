@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
+import unicodedata
 import time
 
 # 1. Configuração da Página para Telão / Projetor
@@ -13,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Estilização CSS Cyberpunk / Holográfica com Boas-Vindas em Destaque
+# 2. Estilização CSS Cyberpunk / Holográfica com Rolagem Customizada para 50+ Escolas
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap');
@@ -132,7 +133,25 @@ st.markdown("""
         animation: marquee 25s linear infinite;
     }
 
-    /* Grid de Escolas */
+    /* Grid de Escolas Otimizado para 50+ Instituições (Com Rolagem Interna) */
+    .school-container-scroll {
+        max-height: 380px;
+        overflow-y: auto;
+        padding-right: 8px;
+    }
+
+    .school-container-scroll::-webkit-scrollbar {
+        width: 6px;
+    }
+    .school-container-scroll::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 4px;
+    }
+    .school-container-scroll::-webkit-scrollbar-thumb {
+        background: #00e5ff;
+        border-radius: 4px;
+    }
+
     .school-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -271,6 +290,34 @@ def carregar_dados_seguro(fonte, arquivo_backup):
         return pd.read_csv(arquivo_backup)
 
 # =====================================================================
+# FUNÇÃO DE UNIFICAÇÃO E HIGIENIZAÇÃO DE NOMES
+# =====================================================================
+def padronizar_escola(nome):
+    if pd.isna(nome):
+        return "DELEGAÇÕES DO ESTADO (MT)"
+    
+    texto = unicodedata.normalize('NFKD', str(nome)).encode('ascii', errors='ignore').decode('utf-8').strip().upper()
+    
+    # Dicionário de Sinônimos e Abreviaturas Oficiais
+    sinonimos = {
+        "UFR": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
+        "UNIVERSIDADE FEDERAL DE RONDONOPOLIS": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
+        "UNIV. FEDERAL DE RONDONOPOLIS": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
+        "IFMT": "INSTITUTO FEDERAL DE MATO GROSSO",
+        "INSTITUTO FEDERAL DE EDUCACAO, CIENCIA E TECNOLOGIA DE MATO GROSSO": "INSTITUTO FEDERAL DE MATO GROSSO"
+    }
+    
+    if texto in sinonimos:
+        return sinonimos[texto]
+    
+    # Filtro Inteligente para respostas vagas, genéricas ou incertas dos alunos
+    termos_vagos = ["NAO SEI", "NAO SE", "NAO INFORMADO", "ESTADO", "MT", "MATO GROSSO", "PUBLICO", "PUBLICA", "ESTADUAL", "ESCOLA", "OUTROS", "N/A", "-"]
+    if texto in termos_vagos or len(texto) <= 3:
+        return "REDE ESTADUAL / VISITANTES - MT"
+        
+    return texto
+
+# =====================================================================
 # BLOCO INTELIGENTE COM ATUALIZAÇÃO AUTOMÁTICA EM SEGUNDO PLANO (SEM PISCAR)
 # =====================================================================
 @st.fragment(run_every=4)
@@ -283,7 +330,7 @@ def painel_ao_vivo():
     col_escola = [c for c in df_cred.columns if "escola" in c.lower() or "institui" in c.lower()]
 
     if not df_cred.empty and col_cidade:
-        df_cred['Cidade_Clean'] = df_cred[col_cidade[0]].astype(str).str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.strip().str.upper()
+        df_cred['Cidade_Clean'] = df_cred[col_cidade[0]].astype(str).apply(lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', errors='ignore').decode('utf-8').strip().upper())
         total_participantes = len(df_cred)
         total_municipios = df_cred['Cidade_Clean'].nunique()
     else:
@@ -291,8 +338,8 @@ def painel_ao_vivo():
         total_municipios = 0
 
     if not df_cred.empty and col_escola:
-        df_cred['Escola_Clean'] = df_cred[col_escola[0]].astype(str).str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.strip().str.upper()
-        df_escolas_validas = df_cred[~df_cred['Escola_Clean'].isin(['', 'NAN', 'NAO INFORMADO', 'NONE', '-'])]
+        df_cred['Escola_Clean'] = df_cred[col_escola[0]].apply(padronizar_escola)
+        df_escolas_validas = df_cred[~df_cred['Escola_Clean'].isin(['', 'NAN', 'NONE', '-'])]
         total_escolas = df_escolas_validas['Escola_Clean'].nunique()
     else:
         total_escolas = 0
@@ -385,7 +432,7 @@ def painel_ao_vivo():
                 'bar': {'color': "#00e5ff"},
                 'bgcolor': "rgba(0,0,0,0.5)",
                 'borderwidth': 2,
-                'bordercolor': "#7928ca",
+                'bordercolor": "#7928ca",
                 'steps': [
                     {'range': [0, meta_visitantes * 0.5], 'color': 'rgba(0, 229, 255, 0.1)'},
                     {'range': [meta_visitantes * 0.5, meta_visitantes], 'color': 'rgba(121, 40, 202, 0.2)'}
@@ -408,7 +455,6 @@ def painel_ao_vivo():
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
         
-        # Procura dinamicamente pela coluna de feedback na planilha
         col_feedback = [c for c in df_vote.columns if "gostou" in c.lower() or "feedback" in c.lower() or "favorito" in c.lower()]
         
         if not df_vote.empty and col_feedback:
@@ -419,7 +465,6 @@ def painel_ao_vivo():
                 contagem = serie_feedback.value_counts()
                 for idx, (palavra, qtd) in enumerate(contagem.items()):
                     cor = cores[idx % len(cores)]
-                    # Quanto mais votos a palavra tiver, maior a fonte fica proporcionalmente (de 13px até 30px)
                     tam = min(13 + (qtd * 4), 30)
                     
                     tag_html = f'''
@@ -437,7 +482,6 @@ def painel_ao_vivo():
             else:
                 tags_list.append('<span class="tag-item" style="font-size: 14px; color: #00e5ff; border: 1px solid #00e5ff66;">⏳ AGUARDANDO RESPOSTAS...</span>')
         else:
-            # Fallback padrão caso a coluna venha vazia
             tags_list.append('<span class="tag-item" style="font-size: 18px; color: #00e5ff; border: 1px solid #00e5ff66; background: #00e5ff15;">🤖 ROBÔS EM AÇÃO</span>')
             tags_list.append('<span class="tag-item" style="font-size: 15px; color: #ff007f; border: 1px solid #ff007f66; background: #ff007f15;">💡 CRIATIVIDADE</span>')
             tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00ff66; border: 1px solid #00ff6666; background: #00ff6615;">🔥 INOVAÇÃO UFR</span>')
@@ -447,9 +491,11 @@ def painel_ao_vivo():
 
     st.write("")
 
+    # Seção Inferior: Grid de Escolas Otimizado para 50+ Instituições
     st.markdown("##### 🏫 ESCOLAS & INSTITUIÇÕES CONECTADAS NO EVENTO")
     if not df_escolas_validas.empty:
         escolas_resumo = df_escolas_validas.groupby(['Escola_Clean', 'Cidade_Clean']).size().reset_index(name='Total_Alunos')
+        escolas_resumo = escolas_resumo.sort_values(by='Total_Alunos', ascending=False)
         
         cards_list = []
         for _, row in escolas_resumo.iterrows():
@@ -470,7 +516,7 @@ def painel_ao_vivo():
             )
             cards_list.append(card)
         
-        html_final = f'<div class="school-grid">{"".join(cards_list)}</div>'
+        html_final = f'<div class="school-container-scroll"><div class="school-grid">{"".join(cards_list)}</div></div>'
         st.markdown(html_final, unsafe_allow_html=True)
     else:
         st.info("Aguardando credenciamento das escolas e delegações...")
