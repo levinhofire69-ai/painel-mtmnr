@@ -190,15 +190,16 @@ st.markdown("""
         flex-wrap: wrap;
         align-items: center;
         justify-content: center;
-        gap: 10px;
+        gap: 12px;
         box-shadow: 0 0 20px rgba(255, 0, 127, 0.2);
     }
 
     .tag-item {
         font-family: 'Orbitron', sans-serif;
-        padding: 6px 12px;
+        padding: 8px 14px;
         border-radius: 16px;
         animation: floatTag 3s ease-in-out infinite alternate;
+        transition: all 0.3s ease;
     }
 
     @keyframes bannerGlow {
@@ -228,7 +229,7 @@ st.markdown("""
 
     @keyframes floatTag {
         0% { transform: translateY(0px) scale(0.98); }
-        100% { transform: translateY(-5px) scale(1.02); }
+        100% { transform: translateY(-4px) scale(1.02); }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -403,20 +404,43 @@ def painel_ao_vivo():
         st.plotly_chart(fig_gauge, use_container_width=True)
 
     with col_right:
-        st.markdown("##### 💬 RADAR DE FEEDBACK")
-        cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca"]
+        st.markdown("##### 💬 RADAR DE FEEDBACK (NUVEM DINÂMICA)")
+        cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
         
-        if not df_vote.empty and "O que você mais gostou?" in df_vote.columns:
-            contagem = df_vote['O que você mais gostou?'].value_counts()
-            for idx, (palavra, qtd) in enumerate(contagem.items()):
-                cor = cores[idx % len(cores)]
-                tam = min(13 + (qtd * 3), 24)
-                tags_list.append(f'<span class="tag-item" style="font-size: {tam}px; color: {cor}; border: 1px solid {cor}66; box-shadow: 0 0 10px {cor}33;">{palavra} ({qtd})</span>')
+        # Procura dinamicamente pela coluna de feedback na planilha
+        col_feedback = [c for c in df_vote.columns if "gostou" in c.lower() or "feedback" in c.lower() or "favorito" in c.lower()]
+        
+        if not df_vote.empty and col_feedback:
+            serie_feedback = df_vote[col_feedback[0]].dropna().astype(str).str.strip().str.upper()
+            serie_feedback = serie_feedback[serie_feedback.isin(['', 'NAN', 'NONE', '-']) == False]
+            
+            if not serie_feedback.empty:
+                contagem = serie_feedback.value_counts()
+                for idx, (palavra, qtd) in enumerate(contagem.items()):
+                    cor = cores[idx % len(cores)]
+                    # Quanto mais votos a palavra tiver, maior a fonte fica proporcionalmente (de 13px até 30px)
+                    tam = min(13 + (qtd * 4), 30)
+                    
+                    tag_html = f'''
+                    <span class="tag-item" style="
+                        font-size: {tam}px; 
+                        color: {cor}; 
+                        border: 1px solid {cor}88; 
+                        background: {cor}15;
+                        box-shadow: 0 0 {10 + (qtd * 3)}px {cor}44;
+                        margin: 5px;
+                        display: inline-block;
+                    ">{palavra} ({qtd})</span>
+                    '''
+                    tags_list.append(tag_html)
+            else:
+                tags_list.append('<span class="tag-item" style="font-size: 14px; color: #00e5ff; border: 1px solid #00e5ff66;">⏳ AGUARDANDO RESPOSTAS...</span>')
         else:
-            tags_list.append('<span class="tag-item" style="font-size: 15px; color: #00e5ff; border: 1px solid #00e5ff66;">🤖 ROBÔS EM AÇÃO</span>')
-            tags_list.append('<span class="tag-item" style="font-size: 14px; color: #ff007f; border: 1px solid #ff007f66;">💡 CRIATIVIDADE</span>')
-            tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00ff66; border: 1px solid #00ff6666;">🔥 INOVAÇÃO UFR</span>')
+            # Fallback padrão caso a coluna venha vazia
+            tags_list.append('<span class="tag-item" style="font-size: 18px; color: #00e5ff; border: 1px solid #00e5ff66; background: #00e5ff15;">🤖 ROBÔS EM AÇÃO</span>')
+            tags_list.append('<span class="tag-item" style="font-size: 15px; color: #ff007f; border: 1px solid #ff007f66; background: #ff007f15;">💡 CRIATIVIDADE</span>')
+            tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00ff66; border: 1px solid #00ff6666; background: #00ff6615;">🔥 INOVAÇÃO UFR</span>')
             
         tags_html = f'<div class="wordcloud-box">{"".join(tags_list)}</div>'
         st.markdown(tags_html, unsafe_allow_html=True)
