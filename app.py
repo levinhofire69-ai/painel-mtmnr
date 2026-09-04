@@ -12,6 +12,13 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+st.markdown(
+    """
+    <meta http-equiv="refresh" content="4">
+    """,
+    unsafe_allow_html=True
+)
+
 # Injeta o temporizador JavaScript universal que força o navegador a atualizar a cada 4s
 components.html("""
     <script>
