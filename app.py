@@ -298,7 +298,6 @@ def padronizar_escola(nome):
     
     texto = unicodedata.normalize('NFKD', str(nome)).encode('ascii', errors='ignore').decode('utf-8').strip().upper()
     
-    # Dicionário de Sinônimos e Abreviaturas Oficiais
     sinonimos = {
         "UFR": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
         "UNIVERSIDADE FEDERAL DE RONDONOPOLIS": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
@@ -310,7 +309,6 @@ def padronizar_escola(nome):
     if texto in sinonimos:
         return sinonimos[texto]
     
-    # Filtro Inteligente para respostas vagas, genéricas ou incertas dos alunos
     termos_vagos = ["NAO SEI", "NAO SE", "NAO INFORMADO", "ESTADO", "MT", "MATO GROSSO", "PUBLICO", "PUBLICA", "ESTADUAL", "ESCOLA", "OUTROS", "N/A", "-"]
     if texto in termos_vagos or len(texto) <= 3:
         return "REDE ESTADUAL / VISITANTES - MT"
@@ -325,7 +323,6 @@ def painel_ao_vivo():
     df_cred = carregar_dados_seguro(fonte_cred_input, "dados_credenciamento.csv")
     df_vote = carregar_dados_seguro(fonte_votos_input, "dados_votacao.csv")
 
-    # Higienização de Dados (Pandas)
     col_cidade = [c for c in df_cred.columns if "cidade" in c.lower() or "municipio" in c.lower()]
     col_escola = [c for c in df_cred.columns if "escola" in c.lower() or "institui" in c.lower()]
 
@@ -354,7 +351,6 @@ def painel_ao_vivo():
         total_votos = 0
         media_nota = 5.0
 
-    # Interface do Telão
     st.markdown("""
     <div class="welcome-banner">
         <div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>
@@ -432,7 +428,7 @@ def painel_ao_vivo():
                 'bar': {'color': "#00e5ff"},
                 'bgcolor': "rgba(0,0,0,0.5)",
                 'borderwidth': 2,
-                'bordercolor": "#7928ca",
+                'bordercolor': "#7928ca",
                 'steps': [
                     {'range': [0, meta_visitantes * 0.5], 'color': 'rgba(0, 229, 255, 0.1)'},
                     {'range': [meta_visitantes * 0.5, meta_visitantes], 'color': 'rgba(121, 40, 202, 0.2)'}
@@ -491,7 +487,6 @@ def painel_ao_vivo():
 
     st.write("")
 
-    # Seção Inferior: Grid de Escolas Otimizado para 50+ Instituições
     st.markdown("##### 🏫 ESCOLAS & INSTITUIÇÕES CONECTADAS NO EVENTO")
     if not df_escolas_validas.empty:
         escolas_resumo = df_escolas_validas.groupby(['Escola_Clean', 'Cidade_Clean']).size().reset_index(name='Total_Alunos')
@@ -521,5 +516,4 @@ def painel_ao_vivo():
     else:
         st.info("Aguardando credenciamento das escolas e delegações...")
 
-# Chama a função fragmento para iniciar o painel dinâmico
 painel_ao_vivo()
