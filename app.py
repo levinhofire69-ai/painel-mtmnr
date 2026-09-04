@@ -12,6 +12,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Injeta um script invisível no navegador para atualizar a página inteira a cada 4 segundos sozinho
+components.html("""
+    <script>
+        setTimeout(function(){
+            window.location.reload();
+        }, 4000);
+    </script>
+""", height=0)
+
+
+
+
 # 2. Estilização CSS Cyberpunk / Holográfica com Boas-Vindas em Destaque
 st.markdown("""
 <style>
