@@ -2,30 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from streamlit_autorefresh import st_autorefresh
-
 import streamlit.components.v1 as components
-
-# Botão de Tela Cheia flutuante na Barra Lateral
-with st.sidebar:
-    st.markdown("---")
-    if st.button("🖥️ Maximizar Tela Cheia"):
-        components.html("""
-            <script>
-                var elem = window.parent.document.documentElement;
-                if (elem.requestFullscreen) {
-                    elem.requestFullscreen();
-                } else if (elem.webkitRequestFullscreen) { /* Safari */
-                    elem.webkitRequestFullscreen();
-                } else if (elem.msRequestFullscreen) { /* IE11 */
-                    elem.msRequestFullscreen();
-                }
-            </script>
-        """, height=0)
-
-
-
-
+import time
 
 # 1. Configuração da Página para Telão / Projetor
 st.set_page_config(
@@ -35,10 +13,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Atualização Automática a cada 4 segundos
-st_autorefresh(interval=4000, key="datarefresh")
-
-# 3. Estilização CSS Cyberpunk / Holográfica com Boas-Vindas em Destaque
+# 2. Estilização CSS Cyberpunk / Holográfica com Boas-Vindas em Destaque
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap');
@@ -49,7 +24,6 @@ st.markdown("""
         font-family: 'Share Tech Mono', monospace;
     }
     
-    /* Mantém o rodapé oculto, mas libera o botão do menu lateral no topo */
     footer { visibility: hidden; }
 
     /* Banner Gigante de Boas-Vindas */
@@ -260,48 +234,51 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# MENU LATERAL - MODO DE CONTINGÊNCIA (Substituição de Valores Fixos)
+# MENU LATERAL - CONTROLE DE CONTINGÊNCIA & TELA CHEIA
 # =====================================================================
 with st.sidebar:
-    st.header("⚙️ Controle de Contingência")
-    st.write("Modo padrão usa nuvem e atualiza backup local. Se a rede cair, digite os arquivos `.csv` abaixo.")
-    
-    # Campos editáveis para troca rápida de fonte em caso de pane geral
+    st.header("⚙️ Controle do Painel")
+    if st.button("🖥️ Maximizar Tela Cheia"):
+        components.html("""
+            <script>
+                var elem = window.parent.document.documentElement;
+                if (elem.requestFullscreen) { elem.requestFullscreen(); }
+                else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); }
+                else if (elem.msRequestFullscreen) { elem.msRequestFullscreen(); }
+            </script>
+        """, height=0)
+        
+    st.markdown("---")
+    st.write("**Modo Offline (Contingência):**")
     fonte_cred_input = st.text_input("Fonte - Credenciamento:", value="1fG5etsR3P1sGbwoyLHIch0R1Pz_zXH0lhgeU4kVv7xk")
     fonte_votos_input = st.text_input("Fonte - Votação:", value="1xUGYchBCpcOMLMcZvOXPLIKj1PDjwdBF03XJ4uQ5_wM")
 
 # =====================================================================
-# CARREGAMENTO INTELIGENTE COM BACKUP AUTOMÁTICO & CACHE
+# CARREGAMENTO INTELIGENTE COM BACKUP AUTOMÁTICO
 # =====================================================================
 @st.cache_data(ttl=4)
 def carregar_dados_seguro(fonte, arquivo_backup):
     try:
-        # Se for ID padrão do Google Sheets (44 chars), monta a URL da nuvem
         if len(fonte) == 44 and " " not in fonte and "." not in fonte:
             url = f"https://docs.google.com/spreadsheets/d/{fonte}/export?format=csv"
             df = pd.read_csv(url)
-            # Salva automaticamente uma cópia atualizada no seu backup local em segundo plano
             df.to_csv(arquivo_backup, index=False)
             return df
         else:
-            # Se foi digitado um link customizado ou um arquivo local (.csv)
             return pd.read_csv(fonte)
     except Exception:
-        # PLANO B: Se a nuvem falhar ou cair a internet, assume o último backup salvo
         return pd.read_csv(arquivo_backup)
 
-# Executa a leitura inteligente para as duas bases
 df_cred = carregar_dados_seguro(fonte_cred_input, "dados_credenciamento.csv")
 df_vote = carregar_dados_seguro(fonte_votos_input, "dados_votacao.csv")
 
 # =====================================================================
-# HIGIENIZAÇÃO DE DADOS (Tratamento de Erros de Digitação via Pandas)
+# HIGIENIZAÇÃO DE DADOS (PANDAS)
 # =====================================================================
 col_cidade = [c for c in df_cred.columns if "cidade" in c.lower() or "municipio" in c.lower()]
 col_escola = [c for c in df_cred.columns if "escola" in c.lower() or "institui" in c.lower()]
 
 if not df_cred.empty and col_cidade:
-    # Remove acentos, espaços duplicados e padroniza em maiúsculas
     df_cred['Cidade_Clean'] = df_cred[col_cidade[0]].astype(str).str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.strip().str.upper()
     total_participantes = len(df_cred)
     total_municipios = df_cred['Cidade_Clean'].nunique()
@@ -317,7 +294,6 @@ else:
     total_escolas = 0
     df_escolas_validas = pd.DataFrame()
 
-# Processamento de Votação
 if not df_vote.empty and "Nota_Geral" in df_vote.columns:
     total_votos = len(df_vote)
     media_nota = pd.to_numeric(df_vote['Nota_Geral'], errors='coerce').mean()
@@ -327,12 +303,15 @@ else:
     total_votos = 0
     media_nota = 5.0
 
+# =====================================================================
+# ATUALIZAÇÃO AUTOMÁTICA NATIVA (Compatível com Nuvem)
+# =====================================================================
+time.sleep(4)
+st.rerun()
 
 # =====================================================================
-# INTERFACE DO TELÃO (LAYOUT PRINCIPAL)
+# INTERFACE DO TELÃO
 # =====================================================================
-
-# Topo com Banner Ampliado de Boas-Vindas
 st.markdown("""
 <div class="welcome-banner">
     <div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>
@@ -349,7 +328,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 4 Métricas Principais
 k1, k2, k3, k4 = st.columns(4)
 with k1:
     st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_participantes}</div><div class="kpi-label">Público Conectado</div></div>', unsafe_allow_html=True)
@@ -362,7 +340,6 @@ with k4:
 
 st.write("")
 
-# Feed Terminal
 if not df_cred.empty and "Nome Completo" in df_cred.columns:
     ultimos = df_cred.tail(8)
     feed_msg = " /// ".join([f"⚡ [CHECK-IN] {row['Nome Completo']} ➔ {row.get(col_escola[0] if col_escola else 'Cidade de Origem', 'UFR')}" for _, row in ultimos.iterrows()])
@@ -375,7 +352,6 @@ if not df_cred.empty and "Nome Completo" in df_cred.columns:
     </div>
     ''', unsafe_allow_html=True)
 
-# Grid Central
 col_left, col_mid, col_right = st.columns([1.1, 1, 1.1])
 
 with col_left:
@@ -452,7 +428,6 @@ with col_right:
 
 st.write("")
 
-# Seção Inferior: Grid Dinâmico de Escolas e Cidades
 st.markdown("##### 🏫 ESCOLAS & INSTITUIÇÕES CONECTADAS NO EVENTO")
 if not df_escolas_validas.empty:
     escolas_resumo = df_escolas_validas.groupby(['Escola_Clean', 'Cidade_Clean']).size().reset_index(name='Total_Alunos')
