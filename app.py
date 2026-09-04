@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
-import time
 
 # 1. Configuração da Página para Telão / Projetor
 st.set_page_config(
@@ -304,13 +303,7 @@ else:
     media_nota = 5.0
 
 # =====================================================================
-# ATUALIZAÇÃO AUTOMÁTICA NATIVA (Compatível com Nuvem)
-# =====================================================================
-time.sleep(4)
-st.rerun()
-
-# =====================================================================
-# INTERFACE DO TELÃO
+# INTERFACE DO TELÃO (EXIBIÇÃO NORMAL DA TELA)
 # =====================================================================
 st.markdown("""
 <div class="welcome-banner">
@@ -452,6 +445,6 @@ if not df_escolas_validas.empty:
         cards_list.append(card)
     
     html_final = f'<div class="school-grid">{"".join(cards_list)}</div>'
-    st.markdown(html_final, unsafe_allow_html=True)
+    st.markdown(html_final, unsafe_array := True)
 else:
     st.info("Aguardando credenciamento das escolas e delegações...")
