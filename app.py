@@ -12,15 +12,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Injeta um script invisível no navegador para atualizar a página inteira a cada 4 segundos sozinho
+# Injeta o temporizador JavaScript universal que força o navegador a atualizar a cada 4s
 components.html("""
     <script>
         setTimeout(function(){
-            window.location.reload();
+            window.location.reload(1);
         }, 4000);
     </script>
-""", height=0)
-
+""", height=0, scrolling=False)
 
 
 
