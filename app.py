@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Estilização CSS Cyberpunk / Holográfica com Rolagem Customizada para 50+ Escolas
+# 2. Estilização CSS Cyberpunk / Holográfica com Rolagem Customizada
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap');
@@ -133,7 +133,7 @@ st.markdown("""
         animation: marquee 25s linear infinite;
     }
 
-    /* Grid de Escolas Otimizado para 50+ Instituições (Com Rolagem Interna) */
+    /* Grid de Escolas Otimizado para 50+ Instituições */
     .school-container-scroll {
         max-height: 380px;
         overflow-y: auto;
@@ -316,7 +316,7 @@ def padronizar_escola(nome):
     return texto
 
 # =====================================================================
-# BLOCO INTELIGENTE COM ATUALIZAÇÃO AUTOMÁTICA EM SEGUNDO PLANO (SEM PISCAR)
+# BLOCO INTELIGENTE COM ATUALIZAÇÃO AUTOMÁTICA EM SEGUNDO PLANO
 # =====================================================================
 @st.fragment(run_every=4)
 def painel_ao_vivo():
@@ -395,8 +395,11 @@ def painel_ao_vivo():
 
     with col_left:
         st.markdown("##### 🏆 TOP ROBÔS & PROJETOS")
-        if not df_vote.empty and "Estande Favorito" in df_vote.columns and len(df_vote) > 0:
-            top_estandes = df_vote['Estande Favorito'].value_counts().head(5).reset_index()
+        # Procura exatamente pela coluna de projeto favorito/estande
+        col_projeto = [c for c in df_vote.columns if "estande" in c.lower() or "projeto" in c.lower() or "robótica" in c.lower()]
+        
+        if not df_vote.empty and col_projeto and len(df_vote) > 0:
+            top_estandes = df_vote[col_projeto[0]].dropna().astype(str).str.strip().value_counts().head(5).reset_index()
             top_estandes.columns = ['Estande', 'Votos']
             
             fig_rank = px.bar(
@@ -413,7 +416,7 @@ def painel_ao_vivo():
             fig_rank.update_traces(textposition='outside')
             st.plotly_chart(fig_rank, use_container_width=True)
         else:
-            st.info("Aguardando votação popular...")
+            st.info("Aguardando votação de projetos...")
 
     with col_mid:
         st.markdown("##### 🎯 META DE IMPACTO (UFR)")
@@ -451,7 +454,8 @@ def painel_ao_vivo():
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
         
-        col_feedback = [c for c in df_vote.columns if "gostou" in c.lower() or "feedback" in c.lower() or "favorito" in c.lower()]
+        # Procura exatamente pela coluna de feedback "O que você mais gostou?"
+        col_feedback = [c for c in df_vote.columns if "gostou" in c.lower() or "mais" in c.lower()]
         
         if not df_vote.empty and col_feedback:
             serie_feedback = df_vote[col_feedback[0]].dropna().astype(str).str.strip().str.upper()
