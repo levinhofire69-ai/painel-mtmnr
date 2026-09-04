@@ -396,7 +396,6 @@ def painel_ao_vivo():
     with col_left:
         st.markdown("##### 🏆 TOP ROBÔS & PROJETOS")
         
-        # Identifica exatamente a coluna de projeto/estande favorito
         col_projeto = None
         for c in df_vote.columns:
             if "estande" in c.lower() or "projeto" in c.lower():
@@ -459,7 +458,6 @@ def painel_ao_vivo():
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
         
-        # Identifica exatamente a coluna "O que você mais gostou?"
         col_feedback = None
         for c in df_vote.columns:
             if "gostou" in c.lower():
@@ -471,6 +469,10 @@ def painel_ao_vivo():
             serie_feedback = serie_feedback[serie_feedback.isin(['', 'NAN', 'NONE', '-']) == False]
             
             if not serie_feedback.empty:
+                # Remove prefixos numéricos indesejados (ex: "1 (1)" ou "1 - ") para exibir apenas o texto limpo
+                serie_feedback = serie_feedback.str.replace(r'^\d+[\s\-\(\)]*', '', regex=True).str.strip().str.upper()
+                serie_feedback = serie_feedback[serie_feedback != '']
+                
                 contagem = serie_feedback.value_counts()
                 for idx, (resposta, qtd) in enumerate(contagem.items()):
                     cor = cores[idx % len(cores)]
