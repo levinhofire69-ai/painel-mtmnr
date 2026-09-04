@@ -342,14 +342,27 @@ def painel_ao_vivo():
         total_escolas = 0
         df_escolas_validas = pd.DataFrame()
 
-    if not df_vote.empty and "Nota_Geral" in df_vote.columns:
+    # Identifica exatamente a coluna de nota exata fornecida pelo usuário
+    col_nota = "Que nota você dá para a 1ª MTMNR na UFR?"
+    if not df_vote.empty and col_nota in df_vote.columns:
         total_votos = len(df_vote)
-        media_nota = pd.to_numeric(df_vote['Nota_Geral'], errors='coerce').mean()
+        # Converte para número extraindo apenas dígitos caso venha formatado
+        serie_notas = pd.to_numeric(df_vote[col_nota].astype(str).str.extract(r'(\d+[\.,]?\d*)')[0].str.replace(',', '.'), errors='coerce')
+        media_nota = serie_notas.mean()
         if pd.isna(media_nota):
             media_nota = 5.0
     else:
-        total_votos = 0
-        media_nota = 5.0
+        # Fallback de busca caso a coluna tenha leves variações de acentuação
+        col_nota_alt = [c for c in df_vote.columns if "nota" in c.lower()]
+        if not df_vote.empty and col_nota_alt:
+            total_votos = len(df_vote)
+            serie_notas = pd.to_numeric(df_vote[col_nota_alt[0]].astype(str).str.extract(r'(\d+[\.,]?\d*)')[0].str.replace(',', '.'), errors='coerce')
+            media_nota = serie_notas.mean()
+            if pd.isna(media_nota):
+                media_nota = 5.0
+        else:
+            total_votos = 0
+            media_nota = 5.0
 
     st.markdown("""
     <div class="welcome-banner">
@@ -458,19 +471,15 @@ def painel_ao_vivo():
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
         
-        col_feedback = None
-        for c in df_vote.columns:
-            if "gostou" in c.lower():
-                col_feedback = c
-                break
-        
-        if not df_vote.empty and col_feedback:
+        # Identifica exatamente a coluna exata fornecida pelo usuário
+        col_feedback = "O que você mais gostou?"
+        if not df_vote.empty and col_feedback in df_vote.columns:
             serie_feedback = df_vote[col_feedback].dropna().astype(str).str.strip()
             serie_feedback = serie_feedback[serie_feedback.isin(['', 'NAN', 'NONE', '-']) == False]
             
             if not serie_feedback.empty:
-                # Remove prefixos numéricos indesejados (ex: "1 (1)" ou "1 - ") para exibir apenas o texto limpo
-                serie_feedback = serie_feedback.str.replace(r'^\d+[\s\-\(\)]*', '', regex=True).str.strip().str.upper()
+                # Remove apenas pontuações iniciais mantendo o texto da resposta intacto
+                serie_feedback = serie_feedback.str.replace(r'^\d+[\s\-\(\)]*', '', regex=True).str.strip()
                 serie_feedback = serie_feedback[serie_feedback != '']
                 
                 contagem = serie_feedback.value_counts()
