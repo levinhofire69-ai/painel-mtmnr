@@ -395,11 +395,16 @@ def painel_ao_vivo():
 
     with col_left:
         st.markdown("##### 🏆 TOP ROBÔS & PROJETOS")
-        # Procura exatamente pela coluna de projeto favorito/estande
-        col_projeto = [c for c in df_vote.columns if "estande" in c.lower() or "projeto" in c.lower() or "robótica" in c.lower()]
+        
+        # Identifica exatamente a coluna de projeto/estande favorito
+        col_projeto = None
+        for c in df_vote.columns:
+            if "estande" in c.lower() or "projeto" in c.lower():
+                col_projeto = c
+                break
         
         if not df_vote.empty and col_projeto and len(df_vote) > 0:
-            top_estandes = df_vote[col_projeto[0]].dropna().astype(str).str.strip().value_counts().head(5).reset_index()
+            top_estandes = df_vote[col_projeto].dropna().astype(str).str.strip().value_counts().head(5).reset_index()
             top_estandes.columns = ['Estande', 'Votos']
             
             fig_rank = px.bar(
@@ -454,18 +459,22 @@ def painel_ao_vivo():
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
         
-        # Procura exatamente pela coluna de feedback "O que você mais gostou?"
-        col_feedback = [c for c in df_vote.columns if "gostou" in c.lower() or "mais" in c.lower()]
+        # Identifica exatamente a coluna "O que você mais gostou?"
+        col_feedback = None
+        for c in df_vote.columns:
+            if "gostou" in c.lower():
+                col_feedback = c
+                break
         
         if not df_vote.empty and col_feedback:
-            serie_feedback = df_vote[col_feedback[0]].dropna().astype(str).str.strip().str.upper()
+            serie_feedback = df_vote[col_feedback].dropna().astype(str).str.strip()
             serie_feedback = serie_feedback[serie_feedback.isin(['', 'NAN', 'NONE', '-']) == False]
             
             if not serie_feedback.empty:
                 contagem = serie_feedback.value_counts()
-                for idx, (palavra, qtd) in enumerate(contagem.items()):
+                for idx, (resposta, qtd) in enumerate(contagem.items()):
                     cor = cores[idx % len(cores)]
-                    tam = min(13 + (qtd * 4), 30)
+                    tam = min(13 + (qtd * 4), 28)
                     
                     tag_html = f'''
                     <span class="tag-item" style="
@@ -476,15 +485,15 @@ def painel_ao_vivo():
                         box-shadow: 0 0 {10 + (qtd * 3)}px {cor}44;
                         margin: 5px;
                         display: inline-block;
-                    ">{palavra} ({qtd})</span>
+                    ">{resposta} ({qtd})</span>
                     '''
                     tags_list.append(tag_html)
             else:
                 tags_list.append('<span class="tag-item" style="font-size: 14px; color: #00e5ff; border: 1px solid #00e5ff66;">⏳ AGUARDANDO RESPOSTAS...</span>')
         else:
-            tags_list.append('<span class="tag-item" style="font-size: 18px; color: #00e5ff; border: 1px solid #00e5ff66; background: #00e5ff15;">🤖 ROBÔS EM AÇÃO</span>')
-            tags_list.append('<span class="tag-item" style="font-size: 15px; color: #ff007f; border: 1px solid #ff007f66; background: #ff007f15;">💡 CRIATIVIDADE</span>')
-            tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00ff66; border: 1px solid #00ff6666; background: #00ff6615;">🔥 INOVAÇÃO UFR</span>')
+            tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00e5ff; border: 1px solid #00e5ff66; background: #00e5ff15;">DEMONSTRAÇÃO PRÁTICA DOS ROBÔS</span>')
+            tags_list.append('<span class="tag-item" style="font-size: 15px; color: #ff007f; border: 1px solid #ff007f66; background: #ff007f15;">CRIATIVIDADE DOS PROJETOS</span>')
+            tags_list.append('<span class="tag-item" style="font-size: 15px; color: #00ff66; border: 1px solid #00ff6666; background: #00ff6615;">ORGANIZAÇÃO / ESPAÇO</span>')
             
         tags_html = f'<div class="wordcloud-box">{"".join(tags_list)}</div>'
         st.markdown(tags_html, unsafe_allow_html=True)
