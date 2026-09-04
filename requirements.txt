@@ -1,7 +1,5 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from streamlit_autorefresh import st_autorefresh
-
-import streamlit.components.v1 as components
+streamlit
+pandas
+plotly
+streamlit-autorefresh
+streamlit-web-component-examples
