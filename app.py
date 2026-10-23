@@ -133,7 +133,7 @@ st.markdown("""
         animation: marquee 25s linear infinite;
     }
 
-    /* Grid de Escolas Otimizado para 50+ Instituições */
+    /* Grid de Escolas Otimizado */
     .school-container-scroll {
         max-height: 380px;
         overflow-y: auto;
@@ -154,7 +154,7 @@ st.markdown("""
 
     .school-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: 14px;
         background: rgba(0,0,0,0.4);
         padding: 18px;
@@ -176,10 +176,11 @@ st.markdown("""
 
     .school-name {
         font-family: 'Orbitron', sans-serif;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         color: #ffffff;
-        margin-bottom: 4px;
+        margin-bottom: 6px;
+        line-height: 1.3;
     }
 
     .school-city {
@@ -290,28 +291,54 @@ def carregar_dados_seguro(fonte, arquivo_backup):
         return pd.read_csv(arquivo_backup)
 
 # =====================================================================
-# FUNÇÃO DE UNIFICAÇÃO E HIGIENIZAÇÃO DE NOMES
+# FUNÇÕES DE HIGIENIZAÇÃO DE DADOS (ESCOLAS & POLOS)
 # =====================================================================
 def padronizar_escola(nome):
     if pd.isna(nome):
-        return "DELEGAÇÕES DO ESTADO (MT)"
+        return "REDE ESTADUAL / VISITANTES - MT"
     
     texto = unicodedata.normalize('NFKD', str(nome)).encode('ascii', errors='ignore').decode('utf-8').strip().upper()
     
-    sinonimos = {
-        "UFR": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
-        "UNIVERSIDADE FEDERAL DE RONDONOPOLIS": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
-        "UNIV. FEDERAL DE RONDONOPOLIS": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
-        "IFMT": "INSTITUTO FEDERAL DE MATO GROSSO",
-        "INSTITUTO FEDERAL DE EDUCACAO, CIENCIA E TECNOLOGIA DE MATO GROSSO": "INSTITUTO FEDERAL DE MATO GROSSO"
-    }
+    if "UFR" in texto or ("RONDONOPOLIS" in texto and "UNIVERSIDADE" in texto) or "FACULDADE FEDERAL" in texto:
+        return "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS (UFR)"
     
-    if texto in sinonimos:
-        return sinonimos[texto]
+    if "MARIA DE LOU" in texto or "DONA MARIA" in texto or "FRAGELI" in texto or "FRAGELLI" in texto:
+        return "EE CÍVICO-MILITAR DONA MARIA DE LOURDES"
+        
+    if "EDITH" in texto or "PEREIRA BARBOSA" in texto:
+        return "EE CÍVICO-MILITAR PROFª EDITH PEREIRA BARBOSA"
+        
+    if "CARLOS HUGUENEY" in texto or "HUGUENEY" in texto:
+        return "EE CÍVICO-MILITAR CARLOS HUGUENEY"
+        
+    if "IFMT" in texto or "INSTITUTO FEDERAL" in texto:
+        return "IFMT - CAMPUS RONDONÓPOLIS"
+        
+    if "RIBEIRO FARIAS" in texto:
+        return "RIBEIRO FARIAS CONSULTORIA"
     
     termos_vagos = ["NAO SEI", "NAO SE", "NAO INFORMADO", "ESTADO", "MT", "MATO GROSSO", "PUBLICO", "PUBLICA", "ESTADUAL", "ESCOLA", "OUTROS", "N/A", "-"]
     if texto in termos_vagos or len(texto) <= 3:
         return "REDE ESTADUAL / VISITANTES - MT"
+        
+    return texto
+
+def padronizar_polo(cidade):
+    if pd.isna(cidade):
+        return "RONDONÓPOLIS"
+        
+    texto = unicodedata.normalize('NFKD', str(cidade)).encode('ascii', errors='ignore').decode('utf-8').strip().upper()
+    
+    if "GUIRATINGA" in texto:
+        return "GUIRATINGA"
+    if "RONDONOPOLIS" in texto:
+        return "RONDONÓPOLIS"
+    if "ALTO ARAGUAIA" in texto:
+        return "ALTO ARAGUAIA"
+    if "JACUNDA" in texto:
+        return "JACUNDÁ"
+    if "SONORA" in texto:
+        return "SONORA"
         
     return texto
 
@@ -323,11 +350,12 @@ def painel_ao_vivo():
     df_cred = carregar_dados_seguro(fonte_cred_input, "dados_credenciamento.csv")
     df_vote = carregar_dados_seguro(fonte_votos_input, "dados_votacao.csv")
 
-    col_cidade = [c for c in df_cred.columns if "cidade" in c.lower() or "municipio" in c.lower()]
+    # Identificação exata das colunas do formulário
+    col_cidade = [c for c in df_cred.columns if "polo" in c.lower() or "cidade" in c.lower() or "municipio" in c.lower()]
     col_escola = [c for c in df_cred.columns if "escola" in c.lower() or "institui" in c.lower()]
 
     if not df_cred.empty and col_cidade:
-        df_cred['Cidade_Clean'] = df_cred[col_cidade[0]].astype(str).apply(lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', errors='ignore').decode('utf-8').strip().upper())
+        df_cred['Cidade_Clean'] = df_cred[col_cidade[0]].apply(padronizar_polo)
         total_participantes = len(df_cred)
         total_municipios = df_cred['Cidade_Clean'].nunique()
     else:
@@ -342,17 +370,15 @@ def painel_ao_vivo():
         total_escolas = 0
         df_escolas_validas = pd.DataFrame()
 
-    # Identifica exatamente a coluna de nota exata fornecida pelo usuário
+    # Cálculo da nota média
     col_nota = "Que nota você dá para a 1ª MTMNR na UFR?"
     if not df_vote.empty and col_nota in df_vote.columns:
         total_votos = len(df_vote)
-        # Converte para número extraindo apenas dígitos caso venha formatado
         serie_notas = pd.to_numeric(df_vote[col_nota].astype(str).str.extract(r'(\d+[\.,]?\d*)')[0].str.replace(',', '.'), errors='coerce')
         media_nota = serie_notas.mean()
         if pd.isna(media_nota):
             media_nota = 5.0
     else:
-        # Fallback de busca caso a coluna tenha leves variações de acentuação
         col_nota_alt = [c for c in df_vote.columns if "nota" in c.lower()]
         if not df_vote.empty and col_nota_alt:
             total_votos = len(df_vote)
@@ -369,8 +395,7 @@ def painel_ao_vivo():
         <div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>
         <div style="display: flex; align-items: center; justify-content: center; gap: 18px;">
             <span class="bot-head">🤖</span>
-            <div class="welcome-main-title">1ª Mostra Nacional de Robótica Etapa Estadual 
-Mato Grosso (MTMNR)</div>
+            <div class="welcome-main-title">1ª Mostra Nacional de Robótica Etapa Estadual Mato Grosso (MTMNR)</div>
             <span class="bot-head">⚡</span>
         </div>
         <div class="welcome-badge-line">
@@ -393,9 +418,9 @@ Mato Grosso (MTMNR)</div>
 
     st.write("")
 
-    if not df_cred.empty and "Nome Completo" in df_cred.columns:
+    if not df_cred.empty and "Nome Completo:" in df_cred.columns:
         ultimos = df_cred.tail(8)
-        feed_msg = " /// ".join([f"⚡ [CHECK-IN] {row['Nome Completo']} ➔ {row.get(col_escola[0] if col_escola else 'Cidade de Origem', 'UFR')}" for _, row in ultimos.iterrows()])
+        feed_msg = " /// ".join([f"⚡ [CHECK-IN] {row['Nome Completo:']} ➔ {row.get(col_escola[0] if col_escola else 'Polo / Cidade da Instituição', 'UFR')}" for _, row in ultimos.iterrows()])
         st.markdown(f'''
         <div class="terminal-ticker">
             <span style="color:#00e5ff; font-weight:bold;">LIVE FEED:</span>
@@ -472,14 +497,12 @@ Mato Grosso (MTMNR)</div>
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
         
-        # Identifica exatamente a coluna exata fornecida pelo usuário
         col_feedback = "O que você mais gostou?"
         if not df_vote.empty and col_feedback in df_vote.columns:
             serie_feedback = df_vote[col_feedback].dropna().astype(str).str.strip()
             serie_feedback = serie_feedback[serie_feedback.isin(['', 'NAN', 'NONE', '-']) == False]
             
             if not serie_feedback.empty:
-                # Remove apenas pontuações iniciais mantendo o texto da resposta intacto
                 serie_feedback = serie_feedback.str.replace(r'^\d+[\s\-\(\)]*', '', regex=True).str.strip()
                 serie_feedback = serie_feedback[serie_feedback != '']
                 
