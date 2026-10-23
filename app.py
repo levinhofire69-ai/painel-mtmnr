@@ -558,12 +558,14 @@ def painel_ao_vivo():
             if not serie_feedback.empty:
                 contagem = serie_feedback.value_counts()
                 
-                # Agrupa as opções com apenas 1 voto para não poluir a nuvem visualmente
-                if len(contagem) > 5:
-                    votos_outros = contagem[contagem == 1].sum()
-                    contagem = contagem[contagem > 1]
-                    if votos_outros > 0:
-                        contagem["Outras menções"] = votos_outros
+                # --- NOVA REGRA DE AGRUPAMENTO ---
+                # Qualquer opção com menos de 3 votos é agrupada em "Outras menções"
+                limite_minimo = 3
+                votos_outros = contagem[contagem < limite_minimo].sum()
+                contagem = contagem[contagem >= limite_minimo]
+                
+                if votos_outros > 0:
+                    contagem["Outras menções"] = votos_outros
 
                 max_qtd = contagem.max()
 
