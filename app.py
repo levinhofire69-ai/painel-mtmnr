@@ -556,16 +556,22 @@ def painel_ao_vivo():
             serie_feedback = serie_feedback[serie_feedback.ne('')]
 
             if not serie_feedback.empty:
-                contagem = serie_feedback.value_counts()
+                # As 3 opções oficiais do formulário
+                oficiais = [
+                    "Criatividade dos Projetos",
+                    "Demonstração prática dos robôs",
+                    "Organização / Espaço"
+                ]
                 
-                # --- NOVA REGRA DE AGRUPAMENTO ---
-                # Qualquer opção com menos de 3 votos é agrupada em "Outras menções"
-                limite_minimo = 3
-                votos_outros = contagem[contagem < limite_minimo].sum()
-                contagem = contagem[contagem >= limite_minimo]
-                
-                if votos_outros > 0:
-                    contagem["Outras menções"] = votos_outros
+                # Substitui qualquer resposta livre (campo "Outro") por uma categoria genérica
+                def categorizar_feedback(txt):
+                    for of in oficiais:
+                        if txt.lower() == of.lower():
+                            return of
+                    return "Outros (respostas livres)"
+
+                serie_categorizada = serie_feedback.apply(categorizar_feedback)
+                contagem = serie_categorizada.value_counts()
 
                 max_qtd = contagem.max()
 
@@ -574,8 +580,7 @@ def painel_ao_vivo():
                     
                     # Escala proporcional de tamanho (mínimo 14px, máximo 28px)
                     tam = int(14 + (qtd / max_qtd) * 14) if max_qtd > 0 else 14
-                    resposta_curta = resposta if len(resposta) <= 60 else resposta[:57] + "…"
-                    resposta_safe = html.escape(resposta_curta)
+                    resposta_safe = html.escape(resposta)
 
                     tag_html = (
                         f'<span class="tag-item" style="'
