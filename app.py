@@ -4,7 +4,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
 import unicodedata
-import time
+import re
+import html
 
 # 1. Configuração da Página para Telão / Projetor
 st.set_page_config(
@@ -221,6 +222,23 @@ st.markdown("""
         transition: all 0.3s ease;
     }
 
+    .offline-badge {
+        display: block;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+    .offline-badge span {
+        background: #ff007f;
+        color: white;
+        padding: 5px 14px;
+        border-radius: 12px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 11px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        box-shadow: 0 0 15px rgba(255, 0, 127, 0.6);
+    }
+
     @keyframes bannerGlow {
         from { border-color: rgba(0, 229, 255, 0.4); box-shadow: 0 0 25px rgba(0, 229, 255, 0.2); }
         to { border-color: rgba(255, 0, 127, 0.6); box-shadow: 0 0 35px rgba(255, 0, 127, 0.35); }
@@ -273,97 +291,171 @@ with st.sidebar:
     fonte_cred_input = st.text_input("Fonte - Credenciamento:", value="1fG5etsR3P1sGbwoyLHIch0R1Pz_zXH0lhgeU4kVv7xk")
     fonte_votos_input = st.text_input("Fonte - Votação:", value="1xUGYchBCpcOMLMcZvOXPLIKj1PDjwdBF03XJ4uQ5_wM")
 
+
 # =====================================================================
-# CARREGAMENTO INTELIGENTE COM BACKUP AUTOMÁTICO
+# HELPERS: DETECÇÃO ROBUSTA DE COLUNA, SANITIZAÇÃO E PADRONIZAÇÃO
+# =====================================================================
+def _norm_col(s):
+    """Normaliza nome de coluna: strip + lower + remove BOM."""
+    return str(s).strip().lower().replace("\ufeff", "")
+
+
+def achar_coluna(df, nome_exato, termos_contem=None):
+    """
+    Busca por nome EXATO (case-insensitive, strip) e só depois por substring.
+    Corrige o bug onde 'Polo / Cidade da Instituição' era casada como 'escola'.
+    """
+    alvo = _norm_col(nome_exato)
+    for c in df.columns:
+        if _norm_col(c) == alvo:
+            return c
+    if termos_contem:
+        for c in df.columns:
+            cc = _norm_col(c)
+            if any(t in cc for t in termos_contem):
+                return c
+    return None
+
+
+def padronizar_escola(nome):
+    """Unifica as ~25 variantes reais em apenas 6 instituições."""
+    if pd.isna(nome):
+        return "Não Informado"
+
+    t = unicodedata.normalize('NFKD', str(nome)).encode('ascii', errors='ignore').decode().upper()
+    t = " ".join(t.split())
+
+    # UFR (pega UFR, Ufr, UFR contabilidade, Univ./Faculdade/Unidade Federal de Rondonópolis, typo Rononópolis)
+    if (t == "UFR"
+            or t.startswith("UFR ")
+            or "UNIVERSIDADE FEDERAL" in t
+            or "FACULDADE FEDERAL" in t
+            or "UNIDADE FEDERAL" in t
+            or "FEDERAL DE RONDON" in t
+            or "FEDERAL DE RONONOP" in t):
+        return "Universidade Federal de Rondonópolis (UFR)"
+
+    # IFMT
+    if "IFMT" in t or "INSTITUTO FEDERAL" in t:
+        return "Instituto Federal de Mato Grosso (IFMT)"
+
+    # Fragelli (pega Frageli, Fragelli, Dona Maria truncado, EE Civico Militar Dona Maria...)
+    if "FRAGEL" in t or "DONA MARIA" in t:
+        return "EE Cívico-Militar Dona Maria de Lourdes R. Fragelli"
+
+    # Edith Pereira
+    if "EDITH PEREIRA" in t:
+        return "EE Cívico-Militar Prof.ª Edith Pereira Barbosa"
+
+    # Carlos Hugueney (pega também o typo Huguiney)
+    if "HUGUENEY" in t or "HUGUINEY" in t:
+        return "EE Cívico-Militar Carlos Hugueney"
+
+    # Consultoria
+    if "RIBEIRO FARIAS" in t:
+        return "Ribeiro Farias Consultoria"
+
+    # Lixo / vazio
+    if t in ("", "N/A", "NA", "-", "IF", "NAN", "NONE", "ESCOLA ESTADUAL"):
+        return "Não Informado"
+
+    return str(nome).strip()
+
+
+def padronizar_cidade(nome):
+    """
+    Corrige fragmentação: 'Guiratinga' + 'Guiratinga ' + 'Guiratinga-MT' -> 1 cidade.
+    Preserva acentos e maiúsculas como vieram (o CSS uppercase cuida do resto).
+    """
+    if pd.isna(nome) or str(nome).strip() == "":
+        return "NÃO INFORMADO"
+    s = str(nome).strip()
+    # Remove apenas o sufixo -MT (estado do evento). Deixa -MS, -PA, etc visíveis.
+    s = re.sub(r'\s*[-/]\s*MT\s*$', '', s, flags=re.IGNORECASE).strip()
+    if s.upper() in ("N/A", "NA", "-", "IF", "NAN", "NONE"):
+        return "NÃO INFORMADO"
+    return s
+
+
+def limpar_nome_projeto(txt):
+    """Remove o prefixo [Quinta - Manhã] e devolve apenas o nome do projeto."""
+    if pd.isna(txt):
+        return None
+    s = str(txt).strip()
+    if s == "" or s.lower() == "nan":
+        return None
+    s = re.sub(r'^\[.*?\]\s*', '', s).strip()
+    return s if s else None
+
+
+# =====================================================================
+# CARREGAMENTO INTELIGENTE COM BACKUP AUTOMÁTICO (retorna flag de offline)
 # =====================================================================
 @st.cache_data(ttl=4)
 def carregar_dados_seguro(fonte, arquivo_backup):
+    """
+    Retorna (DataFrame, is_offline).
+    is_offline=True significa que a leitura da nuvem falhou e usamos o CSV local.
+    """
     try:
         if len(fonte) == 44 and " " not in fonte and "." not in fonte:
             url = f"https://docs.google.com/spreadsheets/d/{fonte}/export?format=csv"
             df = pd.read_csv(url)
             df.to_csv(arquivo_backup, index=False)
-            return df
+            return df, False
         else:
-            return pd.read_csv(fonte)
+            return pd.read_csv(fonte), False
     except Exception:
-        return pd.read_csv(arquivo_backup)
+        try:
+            return pd.read_csv(arquivo_backup), True
+        except Exception:
+            return pd.DataFrame(), False
 
-# =====================================================================
-# FUNÇÃO DE UNIFICAÇÃO E HIGIENIZAÇÃO DE NOMES
-# =====================================================================
-def padronizar_escola(nome):
-    if pd.isna(nome):
-        return "DELEGAÇÕES DO ESTADO (MT)"
-    
-    texto = unicodedata.normalize('NFKD', str(nome)).encode('ascii', errors='ignore').decode('utf-8').strip().upper()
-    
-    sinonimos = {
-        "UFR": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
-        "UNIVERSIDADE FEDERAL DE RONDONOPOLIS": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
-        "UNIV. FEDERAL DE RONDONOPOLIS": "UNIVERSIDADE FEDERAL DE RONDONÓPOLIS",
-        "IFMT": "INSTITUTO FEDERAL DE MATO GROSSO",
-        "INSTITUTO FEDERAL DE EDUCACAO, CIENCIA E TECNOLOGIA DE MATO GROSSO": "INSTITUTO FEDERAL DE MATO GROSSO"
-    }
-    
-    if texto in sinonimos:
-        return sinonimos[texto]
-    
-    termos_vagos = ["NAO SEI", "NAO SE", "NAO INFORMADO", "ESTADO", "MT", "MATO GROSSO", "PUBLICO", "PUBLICA", "ESTADUAL", "ESCOLA", "OUTROS", "N/A", "-"]
-    if texto in termos_vagos or len(texto) <= 3:
-        return "REDE ESTADUAL / VISITANTES - MT"
-        
-    return texto
 
 # =====================================================================
 # BLOCO INTELIGENTE COM ATUALIZAÇÃO AUTOMÁTICA EM SEGUNDO PLANO
 # =====================================================================
 @st.fragment(run_every=4)
 def painel_ao_vivo():
-    df_cred = carregar_dados_seguro(fonte_cred_input, "dados_credenciamento.csv")
-    df_vote = carregar_dados_seguro(fonte_votos_input, "dados_votacao.csv")
+    df_cred, cred_offline = carregar_dados_seguro(fonte_cred_input, "dados_credenciamento.csv")
+    df_vote, vote_offline = carregar_dados_seguro(fonte_votos_input, "dados_votacao.csv")
+    is_offline = cred_offline or vote_offline
 
-    col_cidade = [c for c in df_cred.columns if "cidade" in c.lower() or "municipio" in c.lower()]
-    col_escola = [c for c in df_cred.columns if "escola" in c.lower() or "institui" in c.lower()]
+    # ---------- Detecção correta das colunas (bug #1 corrigido) ----------
+    col_cidade = achar_coluna(df_cred, "Polo / Cidade da Instituição", ["polo / cidade", "polo"])
+    col_escola = achar_coluna(df_cred, "Nome da Escola ou Instituição", ["nome da escola"])
+    col_nome   = achar_coluna(df_cred, "Nome Completo:", ["nome completo"])
+    col_perfil = achar_coluna(df_cred, "Perfil / Categoria", ["perfil"])
 
     if not df_cred.empty and col_cidade:
-        df_cred['Cidade_Clean'] = df_cred[col_cidade[0]].astype(str).apply(lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', errors='ignore').decode('utf-8').strip().upper())
+        df_cred['Cidade_Clean'] = df_cred[col_cidade].apply(padronizar_cidade)
         total_participantes = len(df_cred)
-        total_municipios = df_cred['Cidade_Clean'].nunique()
+        total_municipios = df_cred.loc[df_cred['Cidade_Clean'] != 'NÃO INFORMADO', 'Cidade_Clean'].nunique()
     else:
         total_participantes = 0
         total_municipios = 0
 
     if not df_cred.empty and col_escola:
-        df_cred['Escola_Clean'] = df_cred[col_escola[0]].apply(padronizar_escola)
-        df_escolas_validas = df_cred[~df_cred['Escola_Clean'].isin(['', 'NAN', 'NONE', '-'])]
+        df_cred['Escola_Clean'] = df_cred[col_escola].apply(padronizar_escola)
+        df_escolas_validas = df_cred[~df_cred['Escola_Clean'].isin(['Não Informado', '', 'NAN', 'NONE', '-'])]
         total_escolas = df_escolas_validas['Escola_Clean'].nunique()
     else:
         total_escolas = 0
         df_escolas_validas = pd.DataFrame()
 
-    # Identifica exatamente a coluna de nota exata fornecida pelo usuário
-    col_nota = "Que nota você dá para a 1ª MTMNR na UFR?"
-    if not df_vote.empty and col_nota in df_vote.columns:
-        total_votos = len(df_vote)
-        # Converte para número extraindo apenas dígitos caso venha formatado
-        serie_notas = pd.to_numeric(df_vote[col_nota].astype(str).str.extract(r'(\d+[\.,]?\d*)')[0].str.replace(',', '.'), errors='coerce')
-        media_nota = serie_notas.mean()
-        if pd.isna(media_nota):
-            media_nota = 5.0
-    else:
-        # Fallback de busca caso a coluna tenha leves variações de acentuação
-        col_nota_alt = [c for c in df_vote.columns if "nota" in c.lower()]
-        if not df_vote.empty and col_nota_alt:
-            total_votos = len(df_vote)
-            serie_notas = pd.to_numeric(df_vote[col_nota_alt[0]].astype(str).str.extract(r'(\d+[\.,]?\d*)')[0].str.replace(',', '.'), errors='coerce')
+    # ---------- Nota média (com fallback por 'nota') ----------
+    col_nota = achar_coluna(df_vote, "Que nota você dá para a 1ª MTMNR na UFR?", ["nota"])
+    media_nota = None
+    if not df_vote.empty and col_nota:
+        serie_notas = pd.to_numeric(
+            df_vote[col_nota].astype(str).str.extract(r'(\d+[\.,]?\d*)')[0].str.replace(',', '.'),
+            errors='coerce'
+        )
+        serie_notas = serie_notas.where((serie_notas >= 0) & (serie_notas <= 10))
+        if not serie_notas.dropna().empty:
             media_nota = serie_notas.mean()
-            if pd.isna(media_nota):
-                media_nota = 5.0
-        else:
-            total_votos = 0
-            media_nota = 5.0
 
+    # ---------- Banner de boas-vindas ----------
     st.markdown("""
     <div class="welcome-banner">
         <div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>
@@ -380,70 +472,101 @@ def painel_ao_vivo():
     </div>
     """, unsafe_allow_html=True)
 
+    if is_offline:
+        st.markdown(
+            '<div class="offline-badge"><span>⚠️ MODO OFFLINE — EXIBINDO CACHE LOCAL</span></div>',
+            unsafe_allow_html=True
+        )
+
+    # ---------- KPIs ----------
+    media_display = f"{media_nota:.1f} ★" if media_nota is not None and not pd.isna(media_nota) else "—"
+
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_participantes}</div><div class="kpi-label">Público Conectado</div></div>', unsafe_allow_html=True)
     with k2:
         st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_escolas}</div><div class="kpi-label">Escolas / Instituições</div></div>', unsafe_allow_html=True)
     with k3:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_municipios}</div><div class="kpi-label">Polos Regionais (MT)</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_municipios}</div><div class="kpi-label">Polos Regionais</div></div>', unsafe_allow_html=True)
     with k4:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{media_nota:.1f} ★</div><div class="kpi-label">Avaliação Geral</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{media_display}</div><div class="kpi-label">Avaliação Geral</div></div>', unsafe_allow_html=True)
 
     st.write("")
 
-    if not df_cred.empty and "Nome Completo" in df_cred.columns:
-        ultimos = df_cred.tail(8)
-        feed_msg = " /// ".join([f"⚡ [CHECK-IN] {row['Nome Completo']} ➔ {row.get(col_escola[0] if col_escola else 'Cidade de Origem', 'UFR')}" for _, row in ultimos.iterrows()])
-        st.markdown(f'''
-        <div class="terminal-ticker">
-            <span style="color:#00e5ff; font-weight:bold;">LIVE FEED:</span>
-            <div class="ticker-content">
-                <span class="ticker-text">{feed_msg} /// BEM-VINDOS À 1ª REGIONAL MATO GROSSO DA MOSTRA NACIONAL DE ROBÓTICA!</span>
+    # ---------- Ticker de CHECK-IN ----------
+    if not df_cred.empty and col_nome:
+        df_feed = df_cred.dropna(subset=[col_nome]).copy()
+        df_feed = df_feed[df_feed[col_nome].astype(str).str.strip().ne('')]
+        ultimos = df_feed.tail(8)
+
+        feed_msgs = []
+        for _, row in ultimos.iterrows():
+            nome = html.escape(str(row[col_nome]).strip())
+            cidade = html.escape(str(row.get(col_cidade, '')).strip()) if col_cidade else "UFR"
+            if not cidade or cidade.upper() == 'NÃO INFORMADO':
+                cidade = "UFR"
+            feed_msgs.append(f"⚡ [CHECK-IN] {nome} ➔ {cidade}")
+
+        if feed_msgs:
+            feed_msg = " /// ".join(feed_msgs)
+            st.markdown(f'''
+            <div class="terminal-ticker">
+                <span style="color:#00e5ff; font-weight:bold;">LIVE FEED:</span>
+                <div class="ticker-content">
+                    <span class="ticker-text">{feed_msg} /// BEM-VINDOS À 1ª REGIONAL MATO GROSSO DA MOSTRA NACIONAL DE ROBÓTICA!</span>
+                </div>
             </div>
-        </div>
-        ''', unsafe_allow_html=True)
+            ''', unsafe_allow_html=True)
 
     col_left, col_mid, col_right = st.columns([1.1, 1, 1.1])
 
+    # ---------- Top Robôs & Projetos (nome limpo + label não cortado) ----------
     with col_left:
         st.markdown("##### 🏆 TOP ROBÔS & PROJETOS")
-        
-        col_projeto = None
-        for c in df_vote.columns:
-            if "estande" in c.lower() or "projeto" in c.lower():
-                col_projeto = c
-                break
-        
-        if not df_vote.empty and col_projeto and len(df_vote) > 0:
-            top_estandes = df_vote[col_projeto].dropna().astype(str).str.strip().value_counts().head(5).reset_index()
-            top_estandes.columns = ['Estande', 'Votos']
-            
-            fig_rank = px.bar(
-                top_estandes, x='Votos', y='Estande', orientation='h',
-                text='Votos', color='Votos',
-                color_continuous_scale=['#00e5ff', '#7928ca', '#ff007f']
-            )
-            fig_rank.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Orbitron", color="#ffffff", size=12),
-                yaxis=dict(autorange="reversed"), coloraxis_showscale=False,
-                height=260, margin=dict(l=5, r=5, t=5, b=5)
-            )
-            fig_rank.update_traces(textposition='outside')
-            st.plotly_chart(fig_rank, use_container_width=True)
+
+        col_projeto = achar_coluna(
+            df_vote,
+            "Qual estande ou projeto de robótica você mais gostou?",
+            ["estande", "projeto"]
+        )
+
+        if not df_vote.empty and col_projeto:
+            serie_projetos = df_vote[col_projeto].apply(limpar_nome_projeto).dropna()
+            if not serie_projetos.empty:
+                contagem = serie_projetos.value_counts().head(5)
+                top_estandes = pd.DataFrame({'Projeto': contagem.index, 'Votos': contagem.values})
+
+                fig_rank = px.bar(
+                    top_estandes, x='Votos', y='Projeto', orientation='h',
+                    text='Votos', color='Votos',
+                    color_continuous_scale=['#00e5ff', '#7928ca', '#ff007f']
+                )
+                fig_rank.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="Orbitron", color="#ffffff", size=11),
+                    yaxis=dict(autorange="reversed", title=None),
+                    xaxis=dict(title=None),
+                    coloraxis_showscale=False,
+                    height=260, margin=dict(l=5, r=5, t=5, b=5)
+                )
+                fig_rank.update_traces(textposition='outside', cliponaxis=False)
+                fig_rank.update_xaxes(range=[0, top_estandes['Votos'].max() * 1.2])
+                st.plotly_chart(fig_rank, use_container_width=True)
+            else:
+                st.info("Aguardando votação de projetos...")
         else:
             st.info("Aguardando votação de projetos...")
 
+    # ---------- Gauge Meta ----------
     with col_mid:
         st.markdown("##### 🎯 META DE IMPACTO (UFR)")
         meta_visitantes = 300
         fig_gauge = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = total_participantes,
-            domain = {'x': [0, 1], 'y': [0, 1]},
-            number = {'font': {'family': 'Orbitron', 'color': '#00ff66', 'size': 34}},
-            gauge = {
+            mode="gauge+number",
+            value=total_participantes,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            number={'font': {'family': 'Orbitron', 'color': '#00ff66', 'size': 34}},
+            gauge={
                 'axis': {'range': [None, meta_visitantes], 'tickcolor': "#00e5ff"},
                 'bar': {'color': "#00e5ff"},
                 'bgcolor': "rgba(0,0,0,0.5)",
@@ -466,28 +589,29 @@ def painel_ao_vivo():
         )
         st.plotly_chart(fig_gauge, use_container_width=True)
 
+    # ---------- Radar de Feedback (bug #2 corrigido) ----------
     with col_right:
         st.markdown("##### 💬 RADAR DE FEEDBACK (NUVEM DINÂMICA)")
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
         tags_list = []
-        
-        # Identifica exatamente a coluna exata fornecida pelo usuário
-        col_feedback = "O que você mais gostou?"
-        if not df_vote.empty and col_feedback in df_vote.columns:
+
+        col_feedback = achar_coluna(df_vote, "O que você mais gostou?", ["gostou"])
+
+        if not df_vote.empty and col_feedback:
             serie_feedback = df_vote[col_feedback].dropna().astype(str).str.strip()
-            serie_feedback = serie_feedback[serie_feedback.isin(['', 'NAN', 'NONE', '-']) == False]
-            
+            serie_feedback = serie_feedback[~serie_feedback.isin(['', 'NAN', 'NONE', '-', '.'])]
+            serie_feedback = serie_feedback.str.replace(r'^\d+[\s\-\(\)]*', '', regex=True).str.strip()
+            serie_feedback = serie_feedback[serie_feedback.ne('')]
+
             if not serie_feedback.empty:
-                # Remove apenas pontuações iniciais mantendo o texto da resposta intacto
-                serie_feedback = serie_feedback.str.replace(r'^\d+[\s\-\(\)]*', '', regex=True).str.strip()
-                serie_feedback = serie_feedback[serie_feedback != '']
-                
                 contagem = serie_feedback.value_counts()
                 for idx, (resposta, qtd) in enumerate(contagem.items()):
                     cor = cores[idx % len(cores)]
-                    tam = min(13 + (qtd * 4), 28)
-                    
-                    tag_html = f'''
+                    tam = min(13 + (qtd * 3), 28)
+                    resposta_curta = resposta if len(resposta) <= 60 else resposta[:57] + "…"
+                    resposta_safe = html.escape(resposta_curta)
+
+                    tags_list.append(f'''
                     <span class="tag-item" style="
                         font-size: {tam}px; 
                         color: {cor}; 
@@ -496,33 +620,33 @@ def painel_ao_vivo():
                         box-shadow: 0 0 {10 + (qtd * 3)}px {cor}44;
                         margin: 5px;
                         display: inline-block;
-                    ">{resposta} ({qtd})</span>
-                    '''
-                    tags_list.append(tag_html)
+                    ">{resposta_safe} ({qtd})</span>
+                    ''')
             else:
                 tags_list.append('<span class="tag-item" style="font-size: 14px; color: #00e5ff; border: 1px solid #00e5ff66;">⏳ AGUARDANDO RESPOSTAS...</span>')
         else:
-            tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00e5ff; border: 1px solid #00e5ff66; background: #00e5ff15;">DEMONSTRAÇÃO PRÁTICA DOS ROBÔS</span>')
-            tags_list.append('<span class="tag-item" style="font-size: 15px; color: #ff007f; border: 1px solid #ff007f66; background: #ff007f15;">CRIATIVIDADE DOS PROJETOS</span>')
-            tags_list.append('<span class="tag-item" style="font-size: 15px; color: #00ff66; border: 1px solid #00ff6666; background: #00ff6615;">ORGANIZAÇÃO / ESPAÇO</span>')
-            
-        tags_html = f'<div class="wordcloud-box">{"".join(tags_list)}</div>'
-        st.markdown(tags_html, unsafe_allow_html=True)
+            tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00e5ff; border: 1px solid #00e5ff66; background: #00e5ff15;">AGUARDANDO FEEDBACKS...</span>')
+
+        st.markdown(f'<div class="wordcloud-box">{"".join(tags_list)}</div>', unsafe_allow_html=True)
 
     st.write("")
 
+    # ---------- Grid de Escolas (agora com o NOME DA ESCOLA, não da cidade) ----------
     st.markdown("##### 🏫 ESCOLAS & INSTITUIÇÕES CONECTADAS NO EVENTO")
-    if not df_escolas_validas.empty:
-        escolas_resumo = df_escolas_validas.groupby(['Escola_Clean', 'Cidade_Clean']).size().reset_index(name='Total_Alunos')
-        escolas_resumo = escolas_resumo.sort_values(by='Total_Alunos', ascending=False)
-        
+    if not df_escolas_validas.empty and col_cidade:
+        # Agrupa só por escola, mostrando a cidade mais frequente como subtítulo
+        escolas_resumo = df_escolas_validas.groupby('Escola_Clean').agg(
+            Total_Alunos=('Escola_Clean', 'size'),
+            Cidade=('Cidade_Clean', lambda x: x.mode().iloc[0] if not x.mode().empty else "NÃO INFORMADO")
+        ).reset_index().sort_values('Total_Alunos', ascending=False)
+
         cards_list = []
         for _, row in escolas_resumo.iterrows():
-            escola_nome = row['Escola_Clean']
-            cidade_nome = row['Cidade_Clean']
-            total_part = row['Total_Alunos']
-            
-            card = (
+            escola_nome = html.escape(str(row['Escola_Clean']))
+            cidade_nome = html.escape(str(row['Cidade']))
+            total_part = int(row['Total_Alunos'])
+
+            cards_list.append(
                 f'<div class="school-card">'
                 f'<div>'
                 f'<div class="school-name">🏛️ {escola_nome}</div>'
@@ -533,11 +657,13 @@ def painel_ao_vivo():
                 f'</div>'
                 f'</div>'
             )
-            cards_list.append(card)
-        
-        html_final = f'<div class="school-container-scroll"><div class="school-grid">{"".join(cards_list)}</div></div>'
-        st.markdown(html_final, unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div class="school-container-scroll"><div class="school-grid">{"".join(cards_list)}</div></div>',
+            unsafe_allow_html=True
+        )
     else:
         st.info("Aguardando credenciamento das escolas e delegações...")
+
 
 painel_ao_vivo()
