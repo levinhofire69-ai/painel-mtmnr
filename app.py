@@ -200,6 +200,7 @@ st.markdown("""
         font-weight: bold;
     }
 
+    /* Nuvem de palavras com alinhamento flexível */
     .wordcloud-box {
         background: rgba(0, 0, 0, 0.4);
         border: 1px solid rgba(255, 0, 127, 0.4);
@@ -208,7 +209,7 @@ st.markdown("""
         min-height: 240px;
         display: flex;
         flex-wrap: wrap;
-        align-items: center;
+        align-content: center;
         justify-content: center;
         gap: 12px;
         box-shadow: 0 0 20px rgba(255, 0, 127, 0.2);
@@ -325,7 +326,6 @@ def padronizar_escola(nome):
     if "IFMT" in t or "INSTITUTO FEDERAL" in t:
         return "Instituto Federal de Mato Grosso (IFMT)"
 
-    # Alargado para 'DONA' para capturar variações truncadas no formulário
     if "FRAGEL" in t or "DONA" in t:
         return "EE Cívico-Militar Dona Maria de Lourdes R. Fragelli"
 
@@ -422,7 +422,6 @@ def painel_ao_vivo():
         if not serie_notas.dropna().empty:
             media_nota = serie_notas.mean()
 
-    # Banner formatado em linha única sem indentação (evita code block do Markdown)
     banner_html = (
         '<div class="welcome-banner">'
         '<div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>'
@@ -558,20 +557,31 @@ def painel_ao_vivo():
 
             if not serie_feedback.empty:
                 contagem = serie_feedback.value_counts()
+                
+                # Agrupa as opções com apenas 1 voto para não poluir a nuvem visualmente
+                if len(contagem) > 5:
+                    votos_outros = contagem[contagem == 1].sum()
+                    contagem = contagem[contagem > 1]
+                    if votos_outros > 0:
+                        contagem["Outras menções"] = votos_outros
+
+                max_qtd = contagem.max()
+
                 for idx, (resposta, qtd) in enumerate(contagem.items()):
                     cor = cores[idx % len(cores)]
-                    tam = min(13 + (qtd * 3), 28)
+                    
+                    # Escala proporcional de tamanho (mínimo 14px, máximo 28px)
+                    tam = int(14 + (qtd / max_qtd) * 14) if max_qtd > 0 else 14
                     resposta_curta = resposta if len(resposta) <= 60 else resposta[:57] + "…"
                     resposta_safe = html.escape(resposta_curta)
 
-                    # String HTML sem indentação para o Streamlit renderizar corretamente
                     tag_html = (
                         f'<span class="tag-item" style="'
                         f'font-size: {tam}px; '
                         f'color: {cor}; '
                         f'border: 1px solid {cor}88; '
                         f'background: {cor}15; '
-                        f'box-shadow: 0 0 {10 + (qtd * 3)}px {cor}44; '
+                        f'box-shadow: 0 0 {10 + (qtd * 2)}px {cor}44; '
                         f'margin: 5px; '
                         f'display: inline-block;'
                         f'">{resposta_safe} ({qtd})</span>'
