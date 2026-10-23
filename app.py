@@ -427,7 +427,7 @@ def painel_ao_vivo():
         '<div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>'
         '<div style="display: flex; align-items: center; justify-content: center; gap: 18px;">'
         '<span class="bot-head">🤖</span>'
-        '<div class="welcome-main-title">1ª Regional Mato Grosso da Mostra Nacional de Robótica (MTMNR)</div>'
+        '<div class="welcome-main-title">1ª Mostra Nacional de Robótica Etapa Estadual Mato Grosso (MTMNR)</div>'
         '<span class="bot-head">⚡</span>'
         '</div>'
         '<div class="welcome-badge-line">'
