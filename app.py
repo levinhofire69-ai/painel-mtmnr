@@ -271,6 +271,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 # =====================================================================
 # MENU LATERAL - CONTROLE DE CONTINGÊNCIA & TELA CHEIA
 # =====================================================================
@@ -296,15 +297,9 @@ with st.sidebar:
 # HELPERS: DETECÇÃO ROBUSTA DE COLUNA, SANITIZAÇÃO E PADRONIZAÇÃO
 # =====================================================================
 def _norm_col(s):
-    """Normaliza nome de coluna: strip + lower + remove BOM."""
     return str(s).strip().lower().replace("\ufeff", "")
 
-
 def achar_coluna(df, nome_exato, termos_contem=None):
-    """
-    Busca por nome EXATO (case-insensitive, strip) e só depois por substring.
-    Corrige o bug onde 'Polo / Cidade da Instituição' era casada como 'escola'.
-    """
     alvo = _norm_col(nome_exato)
     for c in df.columns:
         if _norm_col(c) == alvo:
@@ -316,69 +311,48 @@ def achar_coluna(df, nome_exato, termos_contem=None):
                 return c
     return None
 
-
 def padronizar_escola(nome):
-    """Unifica as ~25 variantes reais em apenas 6 instituições."""
     if pd.isna(nome):
         return "Não Informado"
 
     t = unicodedata.normalize('NFKD', str(nome)).encode('ascii', errors='ignore').decode().upper()
     t = " ".join(t.split())
 
-    # UFR (pega UFR, Ufr, UFR contabilidade, Univ./Faculdade/Unidade Federal de Rondonópolis, typo Rononópolis)
-    if (t == "UFR"
-            or t.startswith("UFR ")
-            or "UNIVERSIDADE FEDERAL" in t
-            or "FACULDADE FEDERAL" in t
-            or "UNIDADE FEDERAL" in t
-            or "FEDERAL DE RONDON" in t
-            or "FEDERAL DE RONONOP" in t):
+    if (t == "UFR" or t.startswith("UFR ") or "UNIVERSIDADE FEDERAL" in t or 
+        "FACULDADE FEDERAL" in t or "UNIDADE FEDERAL" in t or "FEDERAL DE RONDON" in t or "FEDERAL DE RONONOP" in t):
         return "Universidade Federal de Rondonópolis (UFR)"
 
-    # IFMT
     if "IFMT" in t or "INSTITUTO FEDERAL" in t:
         return "Instituto Federal de Mato Grosso (IFMT)"
 
-    # Fragelli (pega Frageli, Fragelli, Dona Maria truncado, EE Civico Militar Dona Maria...)
-    if "FRAGEL" in t or "DONA MARIA" in t:
+    # Alargado para 'DONA' para capturar variações truncadas no formulário
+    if "FRAGEL" in t or "DONA" in t:
         return "EE Cívico-Militar Dona Maria de Lourdes R. Fragelli"
 
-    # Edith Pereira
     if "EDITH PEREIRA" in t:
         return "EE Cívico-Militar Prof.ª Edith Pereira Barbosa"
 
-    # Carlos Hugueney (pega também o typo Huguiney)
     if "HUGUENEY" in t or "HUGUINEY" in t:
         return "EE Cívico-Militar Carlos Hugueney"
 
-    # Consultoria
     if "RIBEIRO FARIAS" in t:
         return "Ribeiro Farias Consultoria"
 
-    # Lixo / vazio
     if t in ("", "N/A", "NA", "-", "IF", "NAN", "NONE", "ESCOLA ESTADUAL"):
         return "Não Informado"
 
     return str(nome).strip()
 
-
 def padronizar_cidade(nome):
-    """
-    Corrige fragmentação: 'Guiratinga' + 'Guiratinga ' + 'Guiratinga-MT' -> 1 cidade.
-    Preserva acentos e maiúsculas como vieram (o CSS uppercase cuida do resto).
-    """
     if pd.isna(nome) or str(nome).strip() == "":
         return "NÃO INFORMADO"
     s = str(nome).strip()
-    # Remove apenas o sufixo -MT (estado do evento). Deixa -MS, -PA, etc visíveis.
     s = re.sub(r'\s*[-/]\s*MT\s*$', '', s, flags=re.IGNORECASE).strip()
     if s.upper() in ("N/A", "NA", "-", "IF", "NAN", "NONE"):
         return "NÃO INFORMADO"
     return s
 
-
 def limpar_nome_projeto(txt):
-    """Remove o prefixo [Quinta - Manhã] e devolve apenas o nome do projeto."""
     if pd.isna(txt):
         return None
     s = str(txt).strip()
@@ -389,14 +363,10 @@ def limpar_nome_projeto(txt):
 
 
 # =====================================================================
-# CARREGAMENTO INTELIGENTE COM BACKUP AUTOMÁTICO (retorna flag de offline)
+# CARREGAMENTO INTELIGENTE COM BACKUP AUTOMÁTICO
 # =====================================================================
 @st.cache_data(ttl=4)
 def carregar_dados_seguro(fonte, arquivo_backup):
-    """
-    Retorna (DataFrame, is_offline).
-    is_offline=True significa que a leitura da nuvem falhou e usamos o CSV local.
-    """
     try:
         if len(fonte) == 44 and " " not in fonte and "." not in fonte:
             url = f"https://docs.google.com/spreadsheets/d/{fonte}/export?format=csv"
@@ -421,11 +391,9 @@ def painel_ao_vivo():
     df_vote, vote_offline = carregar_dados_seguro(fonte_votos_input, "dados_votacao.csv")
     is_offline = cred_offline or vote_offline
 
-    # ---------- Detecção correta das colunas (bug #1 corrigido) ----------
     col_cidade = achar_coluna(df_cred, "Polo / Cidade da Instituição", ["polo / cidade", "polo"])
     col_escola = achar_coluna(df_cred, "Nome da Escola ou Instituição", ["nome da escola"])
     col_nome   = achar_coluna(df_cred, "Nome Completo:", ["nome completo"])
-    col_perfil = achar_coluna(df_cred, "Perfil / Categoria", ["perfil"])
 
     if not df_cred.empty and col_cidade:
         df_cred['Cidade_Clean'] = df_cred[col_cidade].apply(padronizar_cidade)
@@ -443,7 +411,6 @@ def painel_ao_vivo():
         total_escolas = 0
         df_escolas_validas = pd.DataFrame()
 
-    # ---------- Nota média (com fallback por 'nota') ----------
     col_nota = achar_coluna(df_vote, "Que nota você dá para a 1ª MTMNR na UFR?", ["nota"])
     media_nota = None
     if not df_vote.empty and col_nota:
@@ -455,30 +422,27 @@ def painel_ao_vivo():
         if not serie_notas.dropna().empty:
             media_nota = serie_notas.mean()
 
-    # ---------- Banner de boas-vindas ----------
-    st.markdown("""
-    <div class="welcome-banner">
-        <div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>
-        <div style="display: flex; align-items: center; justify-content: center; gap: 18px;">
-            <span class="bot-head">🤖</span>
-            <div class="welcome-main-title">1ª Regional Mato Grosso da Mostra Nacional de Robótica (MTMNR)</div>
-            <span class="bot-head">⚡</span>
-        </div>
-        <div class="welcome-badge-line">
-            <span>📍 UNIVERSIDADE FEDERAL DE RONDONÓPOLIS (UFR)</span>
-            <span>•</span>
-            <span style="color: #00ff66;">● MONITORAMENTO AO VIVO</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Banner formatado em linha única sem indentação (evita code block do Markdown)
+    banner_html = (
+        '<div class="welcome-banner">'
+        '<div class="welcome-subtitle">✨ SEJA BEM-VINDO(A) À ✨</div>'
+        '<div style="display: flex; align-items: center; justify-content: center; gap: 18px;">'
+        '<span class="bot-head">🤖</span>'
+        '<div class="welcome-main-title">1ª Regional Mato Grosso da Mostra Nacional de Robótica (MTMNR)</div>'
+        '<span class="bot-head">⚡</span>'
+        '</div>'
+        '<div class="welcome-badge-line">'
+        '<span>📍 UNIVERSIDADE FEDERAL DE RONDONÓPOLIS (UFR)</span>'
+        '<span>•</span>'
+        '<span style="color: #00ff66;">● MONITORAMENTO AO VIVO</span>'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(banner_html, unsafe_allow_html=True)
 
     if is_offline:
-        st.markdown(
-            '<div class="offline-badge"><span>⚠️ MODO OFFLINE — EXIBINDO CACHE LOCAL</span></div>',
-            unsafe_allow_html=True
-        )
+        st.markdown('<div class="offline-badge"><span>⚠️ MODO OFFLINE — EXIBINDO CACHE LOCAL</span></div>', unsafe_allow_html=True)
 
-    # ---------- KPIs ----------
     media_display = f"{media_nota:.1f} ★" if media_nota is not None and not pd.isna(media_nota) else "—"
 
     k1, k2, k3, k4 = st.columns(4)
@@ -493,7 +457,6 @@ def painel_ao_vivo():
 
     st.write("")
 
-    # ---------- Ticker de CHECK-IN ----------
     if not df_cred.empty and col_nome:
         df_feed = df_cred.dropna(subset=[col_nome]).copy()
         df_feed = df_feed[df_feed[col_nome].astype(str).str.strip().ne('')]
@@ -509,26 +472,21 @@ def painel_ao_vivo():
 
         if feed_msgs:
             feed_msg = " /// ".join(feed_msgs)
-            st.markdown(f'''
-            <div class="terminal-ticker">
-                <span style="color:#00e5ff; font-weight:bold;">LIVE FEED:</span>
-                <div class="ticker-content">
-                    <span class="ticker-text">{feed_msg} /// BEM-VINDOS À 1ª REGIONAL MATO GROSSO DA MOSTRA NACIONAL DE ROBÓTICA!</span>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
+            ticker_html = (
+                f'<div class="terminal-ticker">'
+                f'<span style="color:#00e5ff; font-weight:bold;">LIVE FEED:</span>'
+                f'<div class="ticker-content">'
+                f'<span class="ticker-text">{feed_msg} /// BEM-VINDOS À 1ª REGIONAL MATO GROSSO DA MOSTRA NACIONAL DE ROBÓTICA!</span>'
+                f'</div>'
+                f'</div>'
+            )
+            st.markdown(ticker_html, unsafe_allow_html=True)
 
     col_left, col_mid, col_right = st.columns([1.1, 1, 1.1])
 
-    # ---------- Top Robôs & Projetos (nome limpo + label não cortado) ----------
     with col_left:
         st.markdown("##### 🏆 TOP ROBÔS & PROJETOS")
-
-        col_projeto = achar_coluna(
-            df_vote,
-            "Qual estande ou projeto de robótica você mais gostou?",
-            ["estande", "projeto"]
-        )
+        col_projeto = achar_coluna(df_vote, "Qual estande ou projeto de robótica você mais gostou?", ["estande", "projeto"])
 
         if not df_vote.empty and col_projeto:
             serie_projetos = df_vote[col_projeto].apply(limpar_nome_projeto).dropna()
@@ -557,7 +515,6 @@ def painel_ao_vivo():
         else:
             st.info("Aguardando votação de projetos...")
 
-    # ---------- Gauge Meta ----------
     with col_mid:
         st.markdown("##### 🎯 META DE IMPACTO (UFR)")
         meta_visitantes = 300
@@ -583,13 +540,9 @@ def painel_ao_vivo():
                 }
             }
         ))
-        fig_gauge.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", height=260,
-            margin=dict(l=10, r=10, t=10, b=10)
-        )
+        fig_gauge.update_layout(paper_bgcolor="rgba(0,0,0,0)", height=260, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # ---------- Radar de Feedback (bug #2 corrigido) ----------
     with col_right:
         st.markdown("##### 💬 RADAR DE FEEDBACK (NUVEM DINÂMICA)")
         cores = ["#00e5ff", "#ff007f", "#00ff66", "#f5a623", "#7928ca", "#3b82f6", "#a855f7"]
@@ -611,30 +564,31 @@ def painel_ao_vivo():
                     resposta_curta = resposta if len(resposta) <= 60 else resposta[:57] + "…"
                     resposta_safe = html.escape(resposta_curta)
 
-                    tags_list.append(f'''
-                    <span class="tag-item" style="
-                        font-size: {tam}px; 
-                        color: {cor}; 
-                        border: 1px solid {cor}88; 
-                        background: {cor}15;
-                        box-shadow: 0 0 {10 + (qtd * 3)}px {cor}44;
-                        margin: 5px;
-                        display: inline-block;
-                    ">{resposta_safe} ({qtd})</span>
-                    ''')
+                    # String HTML sem indentação para o Streamlit renderizar corretamente
+                    tag_html = (
+                        f'<span class="tag-item" style="'
+                        f'font-size: {tam}px; '
+                        f'color: {cor}; '
+                        f'border: 1px solid {cor}88; '
+                        f'background: {cor}15; '
+                        f'box-shadow: 0 0 {10 + (qtd * 3)}px {cor}44; '
+                        f'margin: 5px; '
+                        f'display: inline-block;'
+                        f'">{resposta_safe} ({qtd})</span>'
+                    )
+                    tags_list.append(tag_html)
             else:
                 tags_list.append('<span class="tag-item" style="font-size: 14px; color: #00e5ff; border: 1px solid #00e5ff66;">⏳ AGUARDANDO RESPOSTAS...</span>')
         else:
             tags_list.append('<span class="tag-item" style="font-size: 16px; color: #00e5ff; border: 1px solid #00e5ff66; background: #00e5ff15;">AGUARDANDO FEEDBACKS...</span>')
 
-        st.markdown(f'<div class="wordcloud-box">{"".join(tags_list)}</div>', unsafe_allow_html=True)
+        wordcloud_html = f'<div class="wordcloud-box">{"".join(tags_list)}</div>'
+        st.markdown(wordcloud_html, unsafe_allow_html=True)
 
     st.write("")
 
-    # ---------- Grid de Escolas (agora com o NOME DA ESCOLA, não da cidade) ----------
     st.markdown("##### 🏫 ESCOLAS & INSTITUIÇÕES CONECTADAS NO EVENTO")
     if not df_escolas_validas.empty and col_cidade:
-        # Agrupa só por escola, mostrando a cidade mais frequente como subtítulo
         escolas_resumo = df_escolas_validas.groupby('Escola_Clean').agg(
             Total_Alunos=('Escola_Clean', 'size'),
             Cidade=('Cidade_Clean', lambda x: x.mode().iloc[0] if not x.mode().empty else "NÃO INFORMADO")
@@ -646,7 +600,7 @@ def painel_ao_vivo():
             cidade_nome = html.escape(str(row['Cidade']))
             total_part = int(row['Total_Alunos'])
 
-            cards_list.append(
+            card_html = (
                 f'<div class="school-card">'
                 f'<div>'
                 f'<div class="school-name">🏛️ {escola_nome}</div>'
@@ -657,13 +611,11 @@ def painel_ao_vivo():
                 f'</div>'
                 f'</div>'
             )
+            cards_list.append(card_html)
 
-        st.markdown(
-            f'<div class="school-container-scroll"><div class="school-grid">{"".join(cards_list)}</div></div>',
-            unsafe_allow_html=True
-        )
+        grid_html = f'<div class="school-container-scroll"><div class="school-grid">{"".join(cards_list)}</div></div>'
+        st.markdown(grid_html, unsafe_allow_html=True)
     else:
         st.info("Aguardando credenciamento das escolas e delegações...")
-
 
 painel_ao_vivo()
